@@ -1,0 +1,17 @@
+#UTILS
+termcolor
+
+#API
+uvicorn==0.16.0
+fastapi==0.70.1
+
+#SCRAPING
+requests==2.27.1
+bs4==0.0.1
+cloudscraper
+
+#DATA SCIENCE
+pandas==1.3.5
+numpy==1.19.5
+tensorflow==2.7.0
+scikit-learn==1.0.2
