@@ -4,27 +4,32 @@ from datetime import datetime , timedelta
 import cloudscraper
 from bs4 import BeautifulSoup
 
-
 def get_html(url : str , **params):
+    base_url = "https://csgostats.gg"
     scraper = cloudscraper.create_scraper()
-    html = scraper.get(url , params = params).text
+    html = scraper.get( urljoin(base_url , str(url) ) , 
+                        params = params).text
     return BeautifulSoup( html , 'html.parser')
 
-def get_matches():
-    base_url = 'https://csgostats.gg/match'
-    soup = get_html(base_url)
+def scrape_matches():
+    soup = get_html("match")
 
     for match in soup.select('tr[class="p-row js-link"]'):
         match_endpoint = re.findall(r'/match/(\d+)' , match.attrs['onclick'])[0]
+
+        division = match.find('img' , src = re.compile('/images/')).attrs["src"].split('/')[-1].split('-')[0]
         rank = match.find('img' , src = re.compile(r'ranks')).attrs["alt"]
         rankNum = match.find('img' , src = re.compile(r'ranks')).attrs['src'].split('/')[-1].strip('.png')
         upload_time_elapsed = match.find('td' , class_ = 'nowrap').text.strip()
         upload_time = datetime.now() - timedelta(minutes = int(upload_time_elapsed.split(' ')[0]))
+
+        readable_upload_time = upload_time.strftime("%Y-%m-%d %H-%M-%S")
         maps = match.find('img' , src = re.compile('maps')).attrs["alt"]
-        yield dict( matchId = match_endpoint,
+        yield dict( division = division,
+                    matchId = match_endpoint,
                     rank = rank,
                     rankNum = rankNum,
-                    date = upload_time,
+                    date = readable_upload_time,
                     map = maps)
 
 
@@ -108,9 +113,9 @@ def parse_match_rounds(soup) -> dict:
         yield cur_round
 
     
-def get_match_round_data(matchId : int):
-    base_url = 'https://csgostats.gg/match'
-    soup = get_html( base_url + f"/{matchId}#/rounds")
+def scrape_match_round_data(matchId : int):
+    url = f"match/{matchId}#/rounds"
+    soup = get_html(url)
     return [round_ for round_ in parse_match_rounds(soup)]
 
 
@@ -123,27 +128,41 @@ def parse_player_ids(soup) -> dict:
         yield { player.attrs["href"].split('/')[-1] : player.text.strip('\n') }
 
 
-def get_player_ids(matchId : int):
-    base_url = 'https://csgostats.gg/match'
-    soup = get_html( base_url + f"/{matchId}")
+def scrape_player_ids(matchId : int):
+    soup = get_html(f"match/{matchId}")
     return [player for player in parse_player_ids(soup)]
+
+
+class SecuredEntity:
+
+    def __init__(self , entity : object):
+        self.entity = entity
+        if not self.entity:
+            self.attrs = {"title" : None}
+        else:
+            self.attrs = self.entity.attrs
+
+    def __getitem__(self , item):
+        return getattr(self , item)
 
 
 def parse_leaderboard_rows(soup):
     for row in soup.find_all("div" , onclick = re.compile(r"/player/\d+")):
         playerId = re.findall( r"/player/(\d+)" , row.attrs['onclick'])[0]
-        playerRanking = row.select_one(":nth-child(1)").text.strip("\n").strip()
+        playerRanking = row.select_one(":nth-child(1)").text.strip("\n").strip().strip("#")
         playerName = row.select_one(":nth-child(2)").text.strip("\n").strip()
+
+        #different way of getting weapons; although doesn't facilitate to scrape the rest of the row features
 
         #weapons = row.find_all("img" , src = re.compile("/weapons/"))
         #primaryWeapon  , secondaryWeapon = weapons[0].attrs["title"] , weapons[1].attrs["title"]
-        
-        characteristics = ["primaryWeapon" , "secondaryWeapon" , "KD", "HS" , "WinRate", "1vX" , "Rating"]
+
         stats = row.find_all("div" ,style = re.compile("float:left; width:\d{2}%;text-align:center;"))
 
+
         #parsing players weapons
-        primaryWeapon = stats[0].find("img" , src = re.compile("/weapons/")).attrs["title"]
-        secondaryWeapon = stats[1].find("img" , src = re.compile("/weapons/")).attrs["title"]
+        primaryWeapon = SecuredEntity(stats[0].find("img" , src = re.compile("/weapons/"))).attrs["title"]
+        secondaryWeapon = SecuredEntity(stats[1].find("img" , src = re.compile("/weapons/"))).attrs["title"]
 
         #parsing players kills, deaths, kill/death ratio
         kd , _ = stats[2].text.strip("\n").split("\n")
@@ -163,8 +182,9 @@ def parse_leaderboard_rows(soup):
         #parsing player's total rating
         rating = float(stats[6].text.strip())
         
-        yield {"playerId" : playerId ,
-               "playerRanking" : playerRanking,
+        yield {"date" : datetime.now().strftime("%Y-%m-%d") ,
+               "playerId" : playerId ,
+               "playerRanking" : int(playerRanking),
                "playerName" : playerName,
                "primaryWeapon" : primaryWeapon,
                "secondaryWeapon" : secondaryWeapon,
@@ -173,19 +193,24 @@ def parse_leaderboard_rows(soup):
                "deaths" : deaths ,
                "headshots" : headshots ,
                "winRate" : winRate,
-               "1vX" : vX ,
+               "vX" : vX ,
                "rating": rating}
 
 
-def get_leaderboard(page : int = 2):
-    base_url = "https://csgostats.gg/leaderboards"
-    soup = get_html( base_url , page = page)
-    for row in parse_leaderboard_rows(soup):
-        print(row , flush = True)
+def scrape_leaderboard(page : int = 1) -> list:
+    soup = get_html("leaderboards", page = page)
+    return [row for row in parse_leaderboard_rows(soup)]
+        
+    # for i , row in enumerate(parse_leaderboard_rows(soup)):
+    #     print(f"row = {i+1}")
+    #     print(row , flush = True)
 
 
 def main():
     """For testing purposes"""
-    leaderboard = get_leaderboard()
+    leaderboard = scrape_leaderboard(page = 93)
+    # matches = scrape_matches()
+    # for match in matches:
+    #     print(match)
 
 if __name__ == "__main__": main()
