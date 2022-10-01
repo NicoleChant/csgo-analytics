@@ -1,0 +1,4 @@
+*.csv
+notebooks
+*.ipynb
+data
