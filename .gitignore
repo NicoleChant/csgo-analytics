@@ -1,4 +1,5 @@
 *.csv
 notebooks
 *.ipynb
+*.ipynb_checkpoints
 data
