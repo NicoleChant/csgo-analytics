@@ -4,11 +4,15 @@ from datetime import datetime , timedelta
 import cloudscraper
 from bs4 import BeautifulSoup
 
-def get_matches():
+
+def get_html(url : str , **params):
     scraper = cloudscraper.create_scraper()
+    html = scraper.get(url , params = params).text
+    return BeautifulSoup( html , 'html.parser')
+
+def get_matches():
     base_url = 'https://csgostats.gg/match'
-    html = scraper.get(base_url).text
-    soup = BeautifulSoup(html , 'html.parser')
+    soup = get_html(base_url)
 
     for match in soup.select('tr[class="p-row js-link"]'):
         match_endpoint = re.findall(r'/match/(\d+)' , match.attrs['onclick'])[0]
@@ -36,8 +40,8 @@ def parse_team_round_score(round_info):
         
         
 def parse_monetary_stats(table):
-        for val in table.find_all("div" , style = re.compile("float:left; width:16%; font-size:12px;")):
-            yield val.text.strip('\n').strip()
+    for val in table.find_all("div" , style = re.compile("float:left; width:16%; font-size:12px;")):
+        yield val.text.strip('\n').strip()
           
         
 def parse_kill_death_events(table) -> dict:
@@ -104,15 +108,11 @@ def parse_match_rounds(soup) -> dict:
         yield cur_round
 
     
-
 def get_match_round_data(matchId : int):
-    scraper = cloudscraper.create_scraper()
     base_url = 'https://csgostats.gg/match'
-
-    html = scraper.get( base_url + f"/{matchId}#/rounds").text
-    soup = BeautifulSoup(html , 'html.parser')
-
+    soup = get_html( base_url + f"/{matchId}#/rounds")
     return [round_ for round_ in parse_match_rounds(soup)]
+
 
 def parse_player_ids(soup) -> dict:
     for player in soup.find_all(lambda tag : tag.name == "a" \
@@ -122,11 +122,70 @@ def parse_player_ids(soup) -> dict:
                             and "player" in tag.attrs["href"]):
         yield { player.attrs["href"].split('/')[-1] : player.text.strip('\n') }
 
-def get_player_ids(matchId : int):
-    scraper = cloudscraper.create_scraper()
-    base_url = 'https://csgostats.gg/match'
 
-    html = scraper.get( base_url + f"/{matchId}").text
-    soup = BeautifulSoup(html , 'html.parser')
+def get_player_ids(matchId : int):
+    base_url = 'https://csgostats.gg/match'
+    soup = get_html( base_url + f"/{matchId}")
     return [player for player in parse_player_ids(soup)]
 
+
+def parse_leaderboard_rows(soup):
+    for row in soup.find_all("div" , onclick = re.compile(r"/player/\d+")):
+        playerId = re.findall( r"/player/(\d+)" , row.attrs['onclick'])[0]
+        playerRanking = row.select_one(":nth-child(1)").text.strip("\n").strip()
+        playerName = row.select_one(":nth-child(2)").text.strip("\n").strip()
+
+        #weapons = row.find_all("img" , src = re.compile("/weapons/"))
+        #primaryWeapon  , secondaryWeapon = weapons[0].attrs["title"] , weapons[1].attrs["title"]
+        
+        characteristics = ["primaryWeapon" , "secondaryWeapon" , "KD", "HS" , "WinRate", "1vX" , "Rating"]
+        stats = row.find_all("div" ,style = re.compile("float:left; width:\d{2}%;text-align:center;"))
+
+        #parsing players weapons
+        primaryWeapon = stats[0].find("img" , src = re.compile("/weapons/")).attrs["title"]
+        secondaryWeapon = stats[1].find("img" , src = re.compile("/weapons/")).attrs["title"]
+
+        #parsing players kills, deaths, kill/death ratio
+        kd , _ = stats[2].text.strip("\n").split("\n")
+        kd = float(kd.strip())
+        kills , deaths = _.split("/")
+        kills , deaths = int(kills.strip()) , int(deaths.strip())
+
+        #parsing players headshots
+        headshots = round(int(stats[3].text.strip("%"))/100 , 2)
+
+        #parsing players win rate
+        winRate = round(int(stats[4].text.strip("\n").strip().strip("%"))/100 , 2)
+
+        #parsing players duels vs. many players
+        vX = int(stats[5].text.strip())
+
+        #parsing player's total rating
+        rating = float(stats[6].text.strip())
+        
+        yield {"playerId" : playerId ,
+               "playerRanking" : playerRanking,
+               "playerName" : playerName,
+               "primaryWeapon" : primaryWeapon,
+               "secondaryWeapon" : secondaryWeapon,
+               "kd" : kd , 
+               "kills" : kills,
+               "deaths" : deaths ,
+               "headshots" : headshots ,
+               "winRate" : winRate,
+               "1vX" : vX ,
+               "rating": rating}
+
+
+def get_leaderboard(page : int = 2):
+    base_url = "https://csgostats.gg/leaderboards"
+    soup = get_html( base_url , page = page)
+    for row in parse_leaderboard_rows(soup):
+        print(row , flush = True)
+
+
+def main():
+    """For testing purposes"""
+    leaderboard = get_leaderboard()
+
+if __name__ == "__main__": main()
